@@ -25,6 +25,76 @@ export const Conf = () => {
   // untuk menyimpan onjek panggilan
   const currentCallRef = useRef(null);
 
+  const handleCall = (call) => {
+    currentCallRef.current = call;
+
+    call.on("stream", (remoteStream) => {
+      setConnStatus("connected");
+      // Gunakan timeout kecil jika ref video belum sempat ter-render oleh React
+      setTimeout(() => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
+      }, 100);
+    });
+
+    call.on("close", () => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
+      setConnStatus("disconnected");
+      currentCallRef.current = null;
+    });
+
+    call.on("error", (err) => {
+      console.error("Call error:", err);
+      setConnStatus("error");
+    });
+  };
+
+  // Fungsi untuk menelpon orang lain
+  const callUser = (idToCall) => {
+    if (!stream) return;
+
+    setConnStatus("calling"); // Set status saat sedang memanggil
+
+    const call = peerInstance.current.call(idToCall, stream);
+    handleCall(call);
+  };
+
+  // Fungsi untuk toggle audio
+  const toggleAudio = () => {
+    if (stream) {
+      const audioTrack = stream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled; // Mematikan/menghidupkan track audio
+      setIsMuted(!audioTrack.enabled);
+    }
+  };
+
+  const toggleVideo = () => {
+    if (stream) {
+      const videoTrack = stream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled; // Mematikan/menghidupkan track video
+      setIsVideoOff(!videoTrack.enabled);
+    }
+  };
+
+  const handleEndCall = () => {
+    // Tutup koneksi jika ada
+    if (currentCallRef.current) {
+      currentCallRef.current.close();
+    }
+
+    // Update Status agar video remote hilang dari DOM (karena logic && di atas)
+    setConnStatus("disconnected");
+    setRemoteId("");
+
+    // Bersihkan ref video (opsional tapi baik untuk memori)
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+  };
+
   useEffect(() => {
     // Fungsi untuk mengambil akses kamera dan mikrofon
     const enableCamera = async () => {
@@ -57,20 +127,7 @@ export const Conf = () => {
           currentCallRef.current = call; // Simpan di sini
           // Jawab telepon dengan mengirim stream kamera kita
           call.answer(mediaStream);
-
-          // Terima stream dari penelpon
-          call.on("stream", (remoteStream) => {
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = remoteStream;
-            }
-          });
-
-          call.on("close", () => {
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = null;
-            }
-            setConnStatus("disconnected");
-          });
+          handleCall(call);
         });
 
         peerInstance.current = peer;
@@ -94,73 +151,10 @@ export const Conf = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fungsi untuk menelpon orang lain
-  const callUser = (idToCall) => {
-    if (!stream) return;
-
-    setConnStatus("calling"); // Set status saat sedang memanggil
-
-    const call = peerInstance.current.call(idToCall, stream);
-    currentCallRef.current = call; // Simpan di sini
-
-    call.on("stream", (remoteStream) => {
-      setConnStatus("connected"); // Berhasil tersambung
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-      }
-    });
-
-    call.on("error", (err) => {
-      console.error(err);
-      setConnStatus("error");
-      alert("Gagal menelpon ID tersebut.");
-    });
-
-    call.on("close", () => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = null;
-      }
-      setConnStatus("disconnected");
-    });
-  };
-
-  const handleEndCall = () => {
-    // // 1. Putuskan koneksi PeerJS
-    if (remoteVideoRef.current) {
-      currentCallRef.current.close();
-    }
-    // 2. Beri tahu state bahwa kita sudah diskonek
-    setConnStatus("disconnected");
-    // Kamu bisa menambah logika untuk reload atau reset ID teman di sini
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-
-    // 4. Reset ID teman di input (opsional)
-    setRemoteId("");
-  };
-
-  // Fungsi untuk toggle audio
-  const toggleAudio = () => {
-    if (stream) {
-      const audioTrack = stream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled; // Mematikan/menghidupkan track audio
-      setIsMuted(!audioTrack.enabled);
-    }
-  };
-
-  const toggleVideo = () => {
-    if (stream) {
-      const videoTrack = stream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled; // Mematikan/menghidupkan track video
-      setIsVideoOff(!videoTrack.enabled);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
       <h1 className="text-2xl font-bold mb-6">
-        Aplikasi Video Meeting (Dev Mode)
+        Conference Call - App
       </h1>
 
       {/* Panel Kontrol ID */}
@@ -172,17 +166,17 @@ export const Conf = () => {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col md:flex-row gap-3 w-full">
           <input
             type="text"
             placeholder="Masukkan ID teman..."
-            className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 md:py-2 focus:ring-2 focus:ring-blue-500 outline-none text-base"
             value={remoteId}
             onChange={(e) => setRemoteId(e.target.value)}
           />
           <button
             onClick={() => callUser(remoteId)}
-            className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-bold transition-all active:scale-95"
+            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 px-8 py-3 md:py-2 rounded-lg font-bold transition-all active:scale-95 whitespace-nowrap shadow-md"
           >
             Panggil
           </button>
@@ -205,33 +199,38 @@ export const Conf = () => {
       </div>
 
       {/* Grid Video */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-5xl">
+      {/* Grid Video - Menggunakan class dinamis */}
+      <div
+        className={`grid gap-6 w-full max-w-5xl ${connStatus === "connected" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}
+      >
+        {/* Kotak Video Lokal */}
         <div className="relative bg-black rounded-xl overflow-hidden border-2 border-blue-500 shadow-2xl">
-          {/* Elemen Video Lokal */}
           <video
             ref={videoRef}
             autoPlay
             playsInline
-            muted // Muted agar tidak ada feedback suara dari diri sendiri
+            muted
             className="w-full h-full object-cover -scale-x-100"
           />
-
           <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-lg text-sm">
             Kamu (Preview)
           </div>
         </div>
 
-        <div className="relative bg-black rounded-xl overflow-hidden border-2 border-gray-700 shadow-2xl">
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover -scale-x-100"
-          />
-          <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded text-xs">
-            Teman (Remote)
+        {/* Kotak Video Remote - HANYA MUNCUL JIKA TERHUBUNG */}
+        {connStatus === "connected" && (
+          <div className="relative bg-black rounded-xl overflow-hidden border-2 border-gray-700 shadow-2xl">
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover -scale-x-100"
+            />
+            <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded text-xs">
+              Teman (Remote)
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {error && (
