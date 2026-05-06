@@ -15,6 +15,10 @@ export const Conf = () => {
   const [stream, setStream] = useState(null);
   const [error, setError] = useState(null);
 
+  // inisialisasi untuk Fitur Kontrol Media (muted dan toggle video)
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+
   useEffect(() => {
     // Fungsi untuk mengambil akses kamera dan mikrofon
     const enableCamera = async () => {
@@ -88,6 +92,23 @@ export const Conf = () => {
     });
   };
 
+  // Fungsi untuk toggle audio
+  const toggleAudio = () => {
+    if (stream) {
+      const audioTrack = stream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled; // Mematikan/menghidupkan track audio
+      setIsMuted(!audioTrack.enabled);
+    }
+  };
+
+  const toggleVideo = () => {
+    if (stream) {
+      const videoTrack = stream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled; // Mematikan/menghidupkan track video
+      setIsVideoOff(!videoTrack.enabled);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
       <h1 className="text-2xl font-bold mb-6">
@@ -142,7 +163,7 @@ export const Conf = () => {
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="w-full aspect-video object-cover"
+            className="w-full aspect-video object-cover -scale-x-100"
           />
           <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded text-xs">
             Teman (Remote)
@@ -158,11 +179,26 @@ export const Conf = () => {
 
       <div className="mt-8 flex gap-4">
         {/* Placeholder untuk tombol kontrol nantinya */}
-        <button className="bg-red-600 hover:bg-red-700 p-3 rounded-full">
-          Mute
+        {/* Tombol Mute */}
+        <button
+          onClick={toggleAudio}
+          className={`p-4 rounded-full transition-all ${isMuted ? "bg-red-500" : "bg-gray-700 hover:bg-gray-600"}`}
+        >
+          {isMuted ? "Unmute" : "Mute"}
         </button>
-        <button className="bg-gray-700 hover:bg-gray-600 p-3 rounded-full">
-          Stop Video
+        {/* Tombol Stop Video */}
+        <button
+          onClick={toggleVideo}
+          className={`p-4 rounded-full transition-all ${isVideoOff ? "bg-red-500" : "bg-gray-700 hover:bg-gray-600"}`}
+        >
+          {isVideoOff ? "Start Video" : "Stop Video"}
+        </button>
+        {/* Tombol End Call (Opsional) */}
+        <button
+          onClick={() => window.location.reload()} // Cara simpel untuk reset koneksi
+          className="bg-red-600 hover:bg-red-700 p-4 rounded-full font-bold"
+        >
+          End Call
         </button>
       </div>
     </div>
