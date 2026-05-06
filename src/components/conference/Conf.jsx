@@ -25,6 +25,16 @@ export const Conf = () => {
   // untuk menyimpan onjek panggilan
   const currentCallRef = useRef(null);
 
+  // untuk untuk menyimpan histori pesan dan mereferensikan koneksi data agar tidak hilang saat terjadi re-render.
+  const [messages, setMessages] = useState([]); // Menyimpan [{sender: 'me/friend', text: '...'}]
+  const [inputText, setInputText] = useState("");
+  const dataConnRef = useRef(null); // Ref untuk jalur data chat
+  const chatEndRef = useRef(null); // Ref untuk auto-scroll chat
+
+  // untuk mengatur chat sedang terbuka atau tertutup
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0); // Opsional: Indikator pesan baru
+
   const handleCall = (call) => {
     currentCallRef.current = call;
 
@@ -60,6 +70,10 @@ export const Conf = () => {
 
     const call = peerInstance.current.call(idToCall, stream);
     handleCall(call);
+
+    // Membuka jalur data (Chat)
+    const conn = peerInstance.current.connect(idToCall);
+    setupDataListeners(conn);
   };
 
   // Fungsi untuk toggle audio
@@ -83,6 +97,7 @@ export const Conf = () => {
     // Tutup koneksi jika ada
     if (currentCallRef.current) {
       currentCallRef.current.close();
+      dataConnRef.current?.close();
     }
 
     // Update Status agar video remote hilang dari DOM (karena logic && di atas)
@@ -92,6 +107,43 @@ export const Conf = () => {
     // Bersihkan ref video (opsional tapi baik untuk memori)
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
+    }
+  };
+
+  const setupDataListeners = (conn) => {
+    dataConnRef.current = conn;
+
+    conn.on("data", (data) => {
+      // Menangkap pesan masuk dari lawan bicara
+      setMessages((prev) => [...prev, { sender: "friend", text: data }]);
+      if (!isChatOpen) setUnreadCount((prev) => prev + 1); // Tambah notifikasi
+    });
+
+    conn.on("open", () => {
+      console.log("Jalur chat (Data Channel) terbuka!");
+    });
+
+    conn.on("close", () => {
+      dataConnRef.current = null;
+      setMessages((prev) => [
+        ...prev,
+        { sender: "system", text: "Teman meninggalkan chat." },
+      ]);
+    });
+  };
+
+  const sendMessage = (e) => {
+    if (e) e.preventDefault();
+
+    if (dataConnRef.current && inputText.trim() !== "") {
+      // 1. Kirim data via PeerJS
+      dataConnRef.current.send(inputText);
+
+      // 2. Update tampilan lokal
+      setMessages((prev) => [...prev, { sender: "me", text: inputText }]);
+
+      // 3. Reset input
+      setInputText("");
     }
   };
 
@@ -115,6 +167,10 @@ export const Conf = () => {
 
         //inisialisasi PeerJS setelah kamera aktif
         const peer = new Peer();
+
+        peer.on("connection", (conn) => {
+          setupDataListeners(conn);
+        });
 
         peer.on("open", (id) => {
           console.log("ID Berhasil dibuat:", id);
@@ -153,9 +209,7 @@ export const Conf = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
-      <h1 className="text-2xl font-bold mb-6">
-        Conference Call - App
-      </h1>
+      <h1 className="text-2xl font-bold mb-6">Conference Call - App</h1>
 
       {/* Panel Kontrol ID */}
       <div className="w-full max-w-2xl bg-gray-800 p-6 rounded-xl border border-gray-700 mb-8 shadow-lg">
@@ -262,6 +316,80 @@ export const Conf = () => {
         >
           End Call
         </button>
+
+        {/* TOMBOL PEMBUKA CHAT (Floating Button) */}
+        <button
+          onClick={() => {
+            setIsChatOpen(!isChatOpen);
+            setUnreadCount(0); // Reset notifikasi saat dibuka
+          }}
+          className="fixed bottom-6 right-6 z-50 bg-blue-600 hover:bg-blue-700 p-4 rounded-full shadow-2xl transition-all active:scale-95"
+        >
+          {isChatOpen ? "✖️" : "💬"}
+          {!isChatOpen && unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 rounded-full flex items-center justify-center">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+
+        {/* JENDELA POP-UP CHAT */}
+        {isChatOpen && (
+          <div className="fixed bottom-24 right-6 w-[90%] md:w-80 h-112.5 bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+            {/* Header Pop-up */}
+            <div className="p-4 bg-gray-900 border-b border-gray-700 flex justify-between items-center">
+              <h3 className="font-bold flex items-center gap-2">
+                <span>💬</span> Chat Box
+              </h3>
+              <button
+                onClick={() => setIsChatOpen(false)}
+                className="text-gray-400 hover:text-white text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Area Pesan (Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {messages.map((msg, index) => (
+                <div
+                  key={index}
+                  className={`flex flex-col ${msg.sender === "me" ? "items-end" : "items-start"}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                      msg.sender === "me"
+                        ? "bg-blue-600 text-white rounded-br-none"
+                        : "bg-gray-700 text-gray-100 rounded-bl-none"
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="p-3 bg-gray-900/50 border-t border-gray-700">
+              <form onSubmit={sendMessage} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Tulis pesan..."
+                  className="flex-1 bg-gray-700 border-none rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="bg-blue-600 p-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  ✈️
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
