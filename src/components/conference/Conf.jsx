@@ -19,6 +19,12 @@ export const Conf = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
 
+  // untuk memantau apa yang sedang terjadi pada koneksi.
+  const [connStatus, setConnStatus] = useState("idle"); // idle, calling, connected, disconnected
+
+  // untuk menyimpan onjek panggilan
+  const currentCallRef = useRef(null);
+
   useEffect(() => {
     // Fungsi untuk mengambil akses kamera dan mikrofon
     const enableCamera = async () => {
@@ -47,6 +53,8 @@ export const Conf = () => {
 
         // Logika menerima telepon (Incoming Call)
         peer.on("call", (call) => {
+          setConnStatus("connected"); // Update status saat ada telepon masuk
+          currentCallRef.current = call; // Simpan di sini
           // Jawab telepon dengan mengirim stream kamera kita
           call.answer(mediaStream);
 
@@ -55,6 +63,13 @@ export const Conf = () => {
             if (remoteVideoRef.current) {
               remoteVideoRef.current.srcObject = remoteStream;
             }
+          });
+
+          call.on("close", () => {
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = null;
+            }
+            setConnStatus("disconnected");
           });
         });
 
@@ -83,13 +98,46 @@ export const Conf = () => {
   const callUser = (idToCall) => {
     if (!stream) return;
 
+    setConnStatus("calling"); // Set status saat sedang memanggil
+
     const call = peerInstance.current.call(idToCall, stream);
+    currentCallRef.current = call; // Simpan di sini
 
     call.on("stream", (remoteStream) => {
+      setConnStatus("connected"); // Berhasil tersambung
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
     });
+
+    call.on("error", (err) => {
+      console.error(err);
+      setConnStatus("error");
+      alert("Gagal menelpon ID tersebut.");
+    });
+
+    call.on("close", () => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
+      setConnStatus("disconnected");
+    });
+  };
+
+  const handleEndCall = () => {
+    // // 1. Putuskan koneksi PeerJS
+    if (remoteVideoRef.current) {
+      currentCallRef.current.close();
+    }
+    // 2. Beri tahu state bahwa kita sudah diskonek
+    setConnStatus("disconnected");
+    // Kamu bisa menambah logika untuk reload atau reset ID teman di sini
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+
+    // 4. Reset ID teman di input (opsional)
+    setRemoteId("");
   };
 
   // Fungsi untuk toggle audio
@@ -141,6 +189,21 @@ export const Conf = () => {
         </div>
       </div>
 
+      {/* Indikator Status */}
+      <div className="mb-4 text-center">
+        {connStatus === "calling" && (
+          <p className="text-yellow-400 animate-pulse">
+            Menghubungi teman... 📞
+          </p>
+        )}
+        {connStatus === "connected" && (
+          <p className="text-green-400 font-bold">● Terhubung</p>
+        )}
+        {connStatus === "disconnected" && (
+          <p className="text-red-400">Panggilan berakhir.</p>
+        )}
+      </div>
+
       {/* Grid Video */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-5xl">
         <div className="relative bg-black rounded-xl overflow-hidden border-2 border-blue-500 shadow-2xl">
@@ -163,7 +226,7 @@ export const Conf = () => {
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="w-full aspect-video object-cover -scale-x-100"
+            className="w-full h-full object-cover -scale-x-100"
           />
           <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded text-xs">
             Teman (Remote)
@@ -195,7 +258,7 @@ export const Conf = () => {
         </button>
         {/* Tombol End Call (Opsional) */}
         <button
-          onClick={() => window.location.reload()} // Cara simpel untuk reset koneksi
+          onClick={handleEndCall}
           className="bg-red-600 hover:bg-red-700 p-4 rounded-full font-bold"
         >
           End Call
